@@ -53,6 +53,9 @@
 #include "gromacs/utility/cstringutil.h"
 #include "gromacs/utility/fatalerror.h"
 #include "gromacs/utility/gmxomp.h"
+#ifdef GMX_ACCELERATOR
+#include <omp.h>
+#endif
 
 /** Structure with the number of threads for each OpenMP multi-threaded
  *  algorithmic module in mdrun. */
@@ -95,6 +98,12 @@ static const char *mod_name[emntNR] =
  *  the init call is omitted.
  * */
 static omp_module_nthreads_t modth = { 0, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0}, FALSE};
+
+/**
+ * Number of threads for coprocessor.
+ */
+gmx_offload
+static int omp_nthreads_offload = 0;
 
 
 /** Determine the number of threads for module \p mod.
@@ -187,6 +196,23 @@ static void pick_module_nthreads(FILE *fplog, int m,
     }
 
     gmx_omp_nthreads_set(m, nth);
+}
+
+static void pick_offload_nthreads(FILE *fplog)
+{
+	int nthreads = 0;
+	char *env;
+
+    if ((env = getenv(modth_env_var[emntNonbonded])) != NULL)
+    {
+        sscanf(env, "%d", &nthreads);
+    }
+    fprintf(fplog, "Setting number of coprocessor threads to %d\n", nthreads);
+    omp_nthreads_offload = nthreads > 0 ? nthreads : 118;
+#pragma offload target(mic:0) in(nthreads)
+	{
+		omp_nthreads_offload = nthreads > 0 ? nthreads : 118;
+	}
 }
 
 void gmx_omp_nthreads_read_env(int     *nthreads_omp,
@@ -368,6 +394,11 @@ void gmx_omp_nthreads_init(FILE *fplog, t_commrec *cr,
         pick_module_nthreads(fplog, emntLINCS, SIMMASTER(cr), bFullOmpSupport, bSepPME);
         pick_module_nthreads(fplog, emntSETTLE, SIMMASTER(cr), bFullOmpSupport, bSepPME);
 
+        /*
+         * Set value for coprocessor
+         */
+        pick_offload_nthreads(fplog);
+
         /* set the number of threads globally */
         if (bOMP)
         {
@@ -455,8 +486,16 @@ void gmx_omp_nthreads_init(FILE *fplog, t_commrec *cr,
     }
 }
 
+gmx_offload 
 int gmx_omp_nthreads_get(int mod)
 {
+#ifndef GMX_ACCELERATOR
+#ifdef GMX_OFFLOAD
+	if (mod == emntNonbonded)
+	{
+		return omp_nthreads_offload;
+	}
+#endif
     if (mod < 0 || mod >= emntNR)
     {
         /* invalid module queried */
@@ -466,6 +505,9 @@ int gmx_omp_nthreads_get(int mod)
     {
         return modth.nth[mod];
     }
+#else
+    return omp_nthreads_offload;
+#endif
 }
 
 void

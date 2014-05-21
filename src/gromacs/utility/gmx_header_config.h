@@ -50,3 +50,17 @@
 #if defined( _WIN32 ) || defined( _WIN64 )
 #define GMX_NATIVE_WINDOWS
 #endif
+
+/* When available, GMX_OFFLOAD is true on both CPU and accelerator */
+#if defined(__INTEL_OFFLOAD)
+#define GMX_OFFLOAD
+#define gmx_offload __declspec(target(mic))
+
+/* GMX_ACCELERATOR is true only on accelerator when GMX_OFFLOAD is true */
+#if defined(__MIC__)
+#define GMX_ACCELERATOR
+#endif
+
+#else
+#define gmx_offload
+#endif
