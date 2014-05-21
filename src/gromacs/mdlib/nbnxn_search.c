@@ -54,6 +54,7 @@
 #include "gromacs/pbcutil/ishift.h"
 #include "gromacs/pbcutil/pbc.h"
 #include "gromacs/utility/smalloc.h"
+#include "gromacs/mdlib/nb_verlet_simd_offload.h"
 
 /* nbnxn_internal.h included gromacs/simd/macros.h */
 #include "gromacs/mdlib/nbnxn_internal.h"
@@ -106,6 +107,9 @@
 /* cluster index to coordinate array index conversion */
 #define X_IND_CI_J8(ci)  (((ci)>>1)*STRIDE_P8 + ((ci) & 1)*(PACK_X8>>1))
 #define X_IND_CJ_J8(cj)  ((cj)*STRIDE_P8)
+
+#define GMX_SIMD_REAL_WIDTH 16
+#undef GMX_NBNXN_SIMD_4XN
 
 /* The j-cluster size is matched to the SIMD width */
 #if GMX_SIMD_REAL_WIDTH == 2
@@ -233,6 +237,7 @@ static int get_2log(int n)
     return log2;
 }
 
+gmx_offload
 static int nbnxn_kernel_to_ci_size(int nb_kernel_type)
 {
     switch (nb_kernel_type)
@@ -255,6 +260,7 @@ static int nbnxn_kernel_to_ci_size(int nb_kernel_type)
     return 0;
 }
 
+gmx_offload
 int nbnxn_kernel_to_cj_size(int nb_kernel_type)
 {
     int nbnxn_simd_width = 0;
@@ -273,7 +279,11 @@ int nbnxn_kernel_to_cj_size(int nb_kernel_type)
             cj_size = nbnxn_simd_width;
             break;
         case nbnxnk4xN_SIMD_2xNN:
+// #ifdef GMX_ACCELERATOR
+//            cj_size = 8;
+// #else
             cj_size = nbnxn_simd_width/2;
+// #endif
             break;
         case nbnxnk8x8x8_CUDA:
         case nbnxnk8x8x8_PlainC:
@@ -298,6 +308,7 @@ static int ci_to_cj(int na_cj_2log, int ci)
     return 0;
 }
 
+gmx_offload
 gmx_bool nbnxn_kernel_pairlist_simple(int nb_kernel_type)
 {
     if (nb_kernel_type == nbnxnkNotSet)
@@ -389,7 +400,7 @@ void nbnxn_init_search(nbnxn_search_t    * nbs_ptr,
     nbs->a           = NULL;
     nbs->a_nalloc    = 0;
 
-    nbs->nthread_max = nthread_max;
+    nbs->nthread_max = max(nbs->nthread_max, gmx_omp_nthreads_get(emntNonbonded));
 
     /* Initialize the work data structures for each thread */
     snew(nbs->work, nbs->nthread_max);
@@ -2570,7 +2581,7 @@ void nbnxn_init_pairlist_set(nbnxn_pairlist_set_t *nbl_list,
 
     nbl_list->nnbl = gmx_omp_nthreads_get(emntNonbonded);
 
-    if (!nbl_list->bCombined &&
+    if (!nbl_list->bCombined && !bUseOffloadedKernel &&
         nbl_list->nnbl > NBNXN_BUFFERFLAG_MAX_THREADS)
     {
         gmx_fatal(FARGS, "%d OpenMP threads were requested. Since the non-bonded force buffer reduction is prohibitively slow with more than %d threads, we do not allow this. Use %d or less OpenMP threads.",
@@ -2580,7 +2591,7 @@ void nbnxn_init_pairlist_set(nbnxn_pairlist_set_t *nbl_list,
     snew(nbl_list->nbl, nbl_list->nnbl);
     snew(nbl_list->nbl_fep, nbl_list->nnbl);
     /* Execute in order to avoid memory interleaving between threads */
-#pragma omp parallel for num_threads(nbl_list->nnbl) schedule(static)
+#pragma omp parallel for num_threads(gmx_omp_nthreads_get(emntPairsearch)) schedule(static)
     for (i = 0; i < nbl_list->nnbl; i++)
     {
         /* Allocate the nblist data structure locally on each thread
@@ -4590,7 +4601,7 @@ static void balance_fep_lists(const nbnxn_search_t  nbs,
 
     assert(gmx_omp_nthreads_get(emntNonbonded) == nnbl);
 
-#pragma omp parallel for schedule(static) num_threads(nnbl)
+#pragma omp parallel for schedule(static) num_threads(gmx_omp_nthreads_get(emntPairsearch))
     for (th = 0; th < nnbl; th++)
     {
         t_nblist *nbl;
@@ -5718,7 +5729,7 @@ void nbnxn_make_pairlist(const nbnxn_search_t  nbs,
              */
             progBal = (LOCAL_I(iloc) || nbs->zones->n <= 2);
 
-#pragma omp parallel for num_threads(nnbl) schedule(static)
+#pragma omp parallel for num_threads(gmx_omp_nthreads_get(emntPairsearch)) schedule(static)
             for (th = 0; th < nnbl; th++)
             {
                 /* Re-init the thread-local work flag data before making
@@ -5794,7 +5805,7 @@ void nbnxn_make_pairlist(const nbnxn_search_t  nbs,
         }
         else
         {
-#pragma omp parallel for num_threads(nnbl) schedule(static)
+#pragma omp parallel for num_threads(gmx_omp_nthreads_get(emntPairsearch)) schedule(static)
             for (th = 0; th < nnbl; th++)
             {
                 sort_sci(nbl[th]);
