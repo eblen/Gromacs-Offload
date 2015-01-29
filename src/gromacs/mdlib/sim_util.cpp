@@ -1178,17 +1178,11 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
      * decomposition load balancing.
      */
 
-    if (!bUseOrEmulGPU)
+    if (!bUseOffloadedKernel && !bUseOrEmulGPU)
     {
         /* Maybe we should move this into do_force_lowlevel */
         do_nb_verlet(fr, ic, enerd, flags, eintLocal, enbvClearFYes,
                      nrnb, wcycle);
-        if (bUseOffloadedKernel)
-        {
-            nbnxn_atomdata_add_nbat_f_to_f_final(fr->nbv->nbs, eatAll,
-                                                 fr->nbv->grp[eintLocal].nbat, f,
-                                                 gmx_omp_nthreads_get(emntDefault));
-        }
     }
 
     if (fr->efep != efepNO)
@@ -1214,7 +1208,13 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         }
     }
 
-    if (!bUseOrEmulGPU || bDiffKernels)
+    if (bUseOffloadedKernel)
+    {
+        /* Maybe we should move this into do_force_lowlevel */
+        do_nb_verlet(fr, ic, enerd, flags, eintLocal, enbvClearFYes, nrnb, wcycle);
+    }
+
+    if ((!bUseOrEmulGPU || bDiffKernels) && !bUseOffloadedKernel)
     {
         int aloc;
 
@@ -1241,11 +1241,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         cycles_force += wallcycle_stop(wcycle, ewcFORCE);
         wallcycle_start(wcycle, ewcNB_XF_BUF_OPS);
         wallcycle_sub_start(wcycle, ewcsNB_F_BUF_OPS);
-
-        if (!bUseOffloadedKernel)
-        {
-        	nbnxn_atomdata_add_nbat_f_to_f(nbv->nbs, eatAll, nbv->grp[aloc].nbat, f);
-        }
+        nbnxn_atomdata_add_nbat_f_to_f(nbv->nbs, eatAll, nbv->grp[aloc].nbat, f);
         wallcycle_sub_stop(wcycle, ewcsNB_F_BUF_OPS);
         cycles_force += wallcycle_stop(wcycle, ewcNB_XF_BUF_OPS);
         wallcycle_start_nocount(wcycle, ewcFORCE);
@@ -1254,11 +1250,8 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         if ((flags & GMX_FORCE_VIRIAL) &&
         		nbv->grp[aloc].nbl_lists.nnbl > 1)
         {
-        	if (!bUseOffloadedKernel)
-        	{
-        		nbnxn_atomdata_add_nbat_fshift_to_fshift(nbv->grp[aloc].nbat,
-        				fr->fshift);
-        	}
+        	nbnxn_atomdata_add_nbat_fshift_to_fshift(nbv->grp[aloc].nbat,
+        			fr->fshift);
         }
     }
 
@@ -1427,6 +1420,13 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         }
         wallcycle_sub_stop(wcycle, ewcsNB_F_BUF_OPS);
         wallcycle_stop(wcycle, ewcNB_XF_BUF_OPS);
+    }
+
+    if (bUseOffloadedKernel)
+    {
+        nbnxn_atomdata_add_nbat_f_to_f_final(fr->nbv->nbs, eatAll,
+                                             fr->nbv->grp[eintLocal].nbat, f,
+                                             gmx_omp_nthreads_get(emntDefault));
     }
 
     if (DOMAINDECOMP(cr))
