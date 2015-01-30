@@ -1261,6 +1261,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         update_QMMMrec(cr, fr, x, mdatoms, box, top);
     }
 
+    dprintf(2, "Doing lowlevel stuff on the CPU\n");
     /* Compute the bonded and non-bonded energies and optionally forces */
     do_force_lowlevel(fr, inputrec, &(top->idef),
                       cr, nrnb, wcycle, mdatoms,
@@ -1268,6 +1269,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
                       bBornRadii, box,
                       inputrec->fepvals, lambda, graph, &(top->excls), fr->mu_tot,
                       flags, &cycles_pme);
+    dprintf(2, "Finished lowlevel stuff on the CPU\n");
 
     if (bSepLRF)
     {
@@ -1424,9 +1426,13 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
 
     if (bUseOffloadedKernel)
     {
+    	dprintf(2, "Waiting for Phi\n");
+    	wait_for_offload();
+    	dprintf(2, "About time!\n");
         nbnxn_atomdata_add_nbat_f_to_f_final(fr->nbv->nbs, eatAll,
                                              fr->nbv->grp[eintLocal].nbat, f,
                                              gmx_omp_nthreads_get(emntDefault));
+        dprintf(2, "Okay - forces computed\n");
     }
 
     if (DOMAINDECOMP(cr))
