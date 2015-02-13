@@ -44,7 +44,6 @@
 
 #include "gromacs/legacyheaders/md_logging.h"
 #include "gromacs/legacyheaders/types/commrec.h"
-#include "gromacs/timing/cyclecounter.h"
 #include "gromacs/utility/cstringutil.h"
 #include "gromacs/utility/gmxmpi.h"
 #include "gromacs/utility/smalloc.h"
@@ -102,8 +101,8 @@ static const char *wcn[ewcNR] =
     "DD comm. bounds", "Vsite constr.", "Send X to PME", "Neighbor search", "Launch GPU ops.",
     "Comm. coord.", "Born radii", "Force", "Wait + Comm. F", "PME mesh",
     "PME redist. X/F", "PME spread/gather", "PME 3D-FFT", "PME 3D-FFT Comm.", "PME solve LJ", "PME solve Elec",
-    "PME wait for PP", "Wait + Recv. PME F", "Wait GPU nonlocal", "Wait GPU local", "Wait GPU loc. est.", "NB X/F buffer ops.",
-    "Vsite spread", "COM pull force",
+    "PME wait for PP", "Wait + Recv. PME F", "Wait GPU nonlocal", "Wait GPU local", "Wait GPU loc. est.", "Wait MIC",
+	"NB X/F buffer ops.", "Vsite spread", "COM pull force",
     "Write traj.", "Update", "Constraints", "Comm. energies",
     "Enforced rotation", "Add rot. forces", "Coordinate swapping", "IMD", "Test"
 };
@@ -331,6 +330,24 @@ double wallcycle_stop(gmx_wallcycle_t wc, int ewc)
     }
 
     return last;
+}
+
+void wallcycle_add(gmx_wallcycle_t wc, int ewc, gmx_cycles_t cycles, int steps)
+{
+    if (wc == NULL)
+    {
+        return;
+    }
+
+#ifdef GMX_MPI
+    if (wc->wc_barrier)
+    {
+        MPI_Barrier(wc->mpi_comm_mygroup);
+    }
+#endif
+
+    wc->wcc[ewc].c += cycles;
+    wc->wcc[ewc].n += steps;
 }
 
 void wallcycle_reset_all(gmx_wallcycle_t wc)
@@ -939,12 +956,24 @@ void wallcycle_sub_stop(gmx_wallcycle_t wc, int ewcs)
     }
 }
 
+void wallcycle_sub_add(gmx_wallcycle_t wc, int ewcs, gmx_cycles_t cycles, int steps)
+{
+	if (wc != NULL)
+	{
+		wc->wcsc[ewcs].c += cycles;
+		wc->wcsc[ewcs].n += steps;
+	}
+}
+
 #else
 
 void wallcycle_sub_start(gmx_wallcycle_t gmx_unused wc, int gmx_unused ewcs)
 {
 }
 void wallcycle_sub_stop(gmx_wallcycle_t gmx_unused wc, int gmx_unused ewcs)
+{
+}
+void wallcycle_sub_add(gmx_wallcycle_t wc, int ewcs, gmx_cycles_t cycles, int steps)
 {
 }
 
