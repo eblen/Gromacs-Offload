@@ -524,7 +524,7 @@ static void do_nb_verlet(t_forcerec *fr,
         		sim_ct = create_code_timer();
         		reset_timer(sim_ct);
         		nbnxn_kernel_simd_2xnn_offload(fr, ic, enerd, flags, ilocality, clearF, nrnb);
-        		dprintf(2, "Offload call overhead %f\n", get_elapsed_time(sim_ct));
+        		// dprintf(2, "Offload call overhead %f\n", get_elapsed_time(sim_ct));
         		reset_timer(sim_ct);
         	}
         	else
@@ -1268,7 +1268,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         update_QMMMrec(cr, fr, x, mdatoms, box, top);
     }
 
-    dprintf(2, "Doing lowlevel stuff on the CPU\n");
+    // dprintf(2, "Doing lowlevel stuff on the CPU\n");
     /* Compute the bonded and non-bonded energies and optionally forces */
     do_force_lowlevel(fr, inputrec, &(top->idef),
                       cr, nrnb, wcycle, mdatoms,
@@ -1276,7 +1276,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
                       bBornRadii, box,
                       inputrec->fepvals, lambda, graph, &(top->excls), fr->mu_tot,
                       flags, &cycles_pme);
-    dprintf(2, "Finished lowlevel stuff on the CPU\n");
+    // dprintf(2, "Finished lowlevel stuff on the CPU\n");
 
     if (bSepLRF)
     {
@@ -1435,18 +1435,18 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
     {
     	code_timer *ct = create_code_timer();
     	reset_timer(ct);
-    	dprintf(2, "Other force time %f\n", get_elapsed_time(sim_ct));
+    	// dprintf(2, "Other force time %f\n", get_elapsed_time(sim_ct));
     	wallcycle_start(wcycle, ewcWAIT_MIC);
     	wait_for_offload();
     	wallcycle_stop(wcycle, ewcWAIT_MIC);
-    	dprintf(2, "Offload wait time %f\n", get_elapsed_time(ct));
+    	// dprintf(2, "Offload wait time %f\n", get_elapsed_time(ct));
     	int j;
-    	dprintf(2, "Offload timings:");
+    	// dprintf(2, "Offload timings:");
     	for (j=0; j<NUM_TIMES; j++)
     	{
     		// dprintf(2, " %f", phi_times[j]);
     	}
-    	dprintf(2, "\n");
+    	// dprintf(2, "\n");
         wallcycle_start(wcycle, ewcNB_XF_BUF_OPS);
         wallcycle_sub_start(wcycle, ewcsNB_F_BUF_OPS);
         nbnxn_atomdata_add_nbat_f_to_f_final(fr->nbv->nbs, eatAll,
