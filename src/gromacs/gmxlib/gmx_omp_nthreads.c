@@ -37,8 +37,6 @@
 
 #include "gromacs/legacyheaders/gmx_omp_nthreads.h"
 
-#include "config.h"
-
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>

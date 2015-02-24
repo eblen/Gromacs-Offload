@@ -37,8 +37,6 @@
 
 #include "walltime_accounting.h"
 
-#include "config.h"
-
 #include <time.h>
 
 #ifdef HAVE_UNISTD_H
