@@ -1,0 +1,16 @@
+/bin
+/lib
+*~
+#*
+*.pyc
+*.o
+*.a
+*.exe
+*.lib
+*.cache
+Makefile
+lib*.pc
+.project
+.cproject
+CMakeLists.txt.user
+/VersionInfo*.cmake
