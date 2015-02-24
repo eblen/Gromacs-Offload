@@ -56,7 +56,7 @@ enum {
     ewcMOVEX, ewcGB, ewcFORCE, ewcMOVEF, ewcPMEMESH,
     ewcPME_REDISTXF, ewcPME_SPREADGATHER, ewcPME_FFT, ewcPME_FFTCOMM, ewcLJPME, ewcPME_SOLVE,
     ewcPMEWAITCOMM, ewcPP_PMEWAITRECVF, ewcWAIT_GPU_NB_NL, ewcWAIT_GPU_NB_L, ewcWAIT_GPU_NB_L_EST, ewcWAIT_MIC,
-	ewcNB_XF_BUF_OPS, ewcVSITESPREAD, ewcPULLPOT,
+    ewcNB_XF_BUF_OPS, ewcVSITESPREAD, ewcPULLPOT,
     ewcTRAJ, ewcUPDATE, ewcCONSTR, ewcMoveE, ewcROT, ewcROTadd, ewcSWAP, ewcIMD,
     ewcTEST, ewcNR
 };
@@ -115,8 +115,8 @@ void wallcycle_sub_start(gmx_wallcycle_t wc, int ewcs);
 void wallcycle_sub_stop(gmx_wallcycle_t wc, int ewcs);
 /* Stop the sub cycle count for ewcs */
 
-void wallcycle_sub_add(gmx_wallcycle_t wc, int ewc, gmx_cycles_t cycles, int steps);
-/* Increment cycle count and steps for ewc without having to use start and stop */
+void wallcycle_sub_add(gmx_wallcycle_t wc, int ewcs, gmx_cycles_t cycles, int steps);
+/* Increment cycle count and steps for ewcs without having to use start and stop */
 
 #ifdef __cplusplus
 }
