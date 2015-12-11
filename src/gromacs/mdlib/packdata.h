@@ -50,13 +50,13 @@ typedef struct packet_buffer_struct
 } packet_buffer;
 
 // Packet-level operations
-gmx_offload void packdata  (void *packet, packet_buffer *buffers, int num_buffers);
+gmx_offload void packdata(char *packet, packet_buffer *buffers, int num_buffers);
 
-gmx_offload void unpackdata(void *packet, void **buffers,         int num_buffers);
+gmx_offload void unpackdata(char *packet, void **buffers,         int num_buffers);
 
 gmx_offload size_t compute_required_size(packet_buffer *buffers,  int num_buffers);
 
-gmx_offload packet_buffer get_buffer(void *packet, int buffer_num);
+gmx_offload packet_buffer get_buffer(char *packet, int buffer_num);
 
 // Buffer-level operations
 gmx_offload
@@ -66,22 +66,43 @@ typedef struct packet_iter_struct
     char *ptr;
 } packet_iter;
 
-gmx_offload void create_packet_iter(void *packet, packet_iter *iter);
+gmx_offload void create_packet_iter(char *packet, packet_iter *iter);
 
-gmx_offload void *value(packet_iter *iter);
+template<typename T> gmx_offload T *value(packet_iter *iter)
+{
+    return (T *)(iter->packet + (*(size_t *)(iter->ptr + sizeof(size_t))));
+}
 
 gmx_offload size_t size(packet_iter *iter);
 
 /* Return pointer to current buffer and advance to next buffer */
-gmx_offload void *next(packet_iter *iter);
+template<typename T> gmx_offload T *next(packet_iter *iter)
+{
+    T *oldval = value<T>(iter);
+    iter->ptr += 2*sizeof(size_t);
+    return oldval;
+}
 
 /* Same as "next" except allocates a new buffer and copies the current buffer's contents to it
  * instead of returning a pointer to the buffer inside the packet. Allocated buffer size is
  * (size * multiplier).
  */
-gmx_offload void *anext(packet_iter *iter, int multiplier);
+template<typename T>
+gmx_offload T *anext(packet_iter *iter, int multiplier)
+{
+    T *buffer;
+    size_t len = size(iter);
+    snew_aligned(buffer, len*multiplier, 64);
+    memcpy(buffer, next<T>(iter), len);
+    return buffer;
+}
 
 /* Copy contents of current buffer to an existing buffer and advance to next buffer.
  * Client must make sure destination buffer is large enough.
  */
-gmx_offload void cnext(packet_iter *iter, void *buffer);
+template<typename T>
+gmx_offload void cnext(packet_iter *iter, T *buffer)
+{
+    size_t bsize = size(iter);
+    memcpy(buffer, next<T>(iter), bsize);
+}

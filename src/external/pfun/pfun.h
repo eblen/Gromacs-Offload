@@ -43,13 +43,11 @@ private:
     static void *mainLoop(void *self)
     {
         PFun *pfun = (PFun *)self;
-        const IPFunTask *fun = pfun->fun;
-        std::atomic<bool> &isRunning = pfun->isRunning;
         while(true)
         {
-            while (isRunning.load() == false);
-            fun->run();
-            isRunning.store(false);
+            while (pfun->isRunning.load() == false);
+            pfun->fun->run();
+            pfun->isRunning.store(false);
         }
     }
 

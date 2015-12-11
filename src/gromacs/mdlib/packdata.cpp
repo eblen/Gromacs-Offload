@@ -40,9 +40,9 @@
 #include "gromacs/utility/smalloc.h"
 
 gmx_offload
-static void *roundup_ptr(void *addr)
+static char *roundup_ptr(char *addr)
 {
-    return (void *)(((size_t)((char *)addr + PACK_BUFFER_ALIGN - 1)) & (~(PACK_BUFFER_ALIGN - 1)));
+    return reinterpret_cast<char *>(((size_t)(addr + PACK_BUFFER_ALIGN - 1)) & (~(PACK_BUFFER_ALIGN - 1)));
 }
 
 gmx_offload
@@ -57,16 +57,16 @@ static size_t compute_header_size(int num_buffers)
     return num_buffers * 2 * sizeof(size_t);
 }
 
-void packdata(void *packet, packet_buffer *buffers, int num_buffers)
+void packdata(char *packet, packet_buffer *buffers, int num_buffers)
 {
     int   i;
-    char *header_ptr = (char *)packet;
-    char *data_ptr   = (char *)roundup_ptr(header_ptr + compute_header_size(num_buffers));
+    char *header_ptr = packet;
+    char *data_ptr   = roundup_ptr(header_ptr + compute_header_size(num_buffers));
     for (i = 0; i < num_buffers; i++)
     {
         memcpy(header_ptr, &(buffers[i].s), sizeof(size_t));
         header_ptr += sizeof(size_t);
-        size_t ptr_offset = (size_t)(data_ptr - (char *)packet);
+        size_t ptr_offset = (size_t)(data_ptr - packet);
         memcpy(header_ptr, &ptr_offset, sizeof(size_t));
         header_ptr += sizeof(size_t);
         memcpy(data_ptr, buffers[i].p, buffers[i].s);
@@ -74,17 +74,17 @@ void packdata(void *packet, packet_buffer *buffers, int num_buffers)
     }
 }
 
-void unpackdata(void *packet, void **buffers, int num_buffers)
+void unpackdata(char *packet, void **buffers, int num_buffers)
 {
     int   i;
-    char *header_ptr = (char *)packet;
+    char *header_ptr = packet;
     for (i = 0; i < num_buffers; i++)
     {
         size_t size = *(size_t *)header_ptr;
         header_ptr += sizeof(size_t);
         size_t offset = *(size_t *)header_ptr;
         header_ptr += sizeof(size_t);
-        memcpy(buffers[i], (char *)packet + offset, size);
+        memcpy(buffers[i], packet + offset, size);
     }
 }
 
@@ -100,10 +100,10 @@ size_t compute_required_size(packet_buffer *buffers, int num_buffers)
     return size;
 }
 
-packet_buffer get_buffer(void *packet, int buffer_num)
+packet_buffer get_buffer(char *packet, int buffer_num)
 {
     int           i;
-    char         *ptr = (char *)packet;
+    char         *ptr = packet;
     packet_buffer buf;
     for (i = 0; i < buffer_num; i++)
     {
@@ -111,44 +111,17 @@ packet_buffer get_buffer(void *packet, int buffer_num)
     }
     buf.s = *(size_t *)ptr;
     ptr  += sizeof(size_t);
-    buf.p = (char *)packet + *(size_t *)ptr;
+    buf.p = packet + *(size_t *)ptr;
     return buf;
 }
 
-void create_packet_iter(void *packet, packet_iter *iter)
+void create_packet_iter(char *packet, packet_iter *iter)
 {
-    iter->packet = (char *)packet;
-    iter->ptr    = (char *)packet;
-}
-
-void *value(packet_iter *iter)
-{
-    return (void *)(iter->packet + (*(size_t *)(iter->ptr + sizeof(size_t))));
+    iter->packet = packet;
+    iter->ptr    = packet;
 }
 
 size_t size(packet_iter *iter)
 {
     return *(size_t *)(iter->ptr);
-}
-
-void *next(packet_iter *iter)
-{
-    void *oldval = value(iter);
-    iter->ptr += 2*sizeof(size_t);
-    return oldval;
-}
-
-void *anext(packet_iter *iter, int multiplier)
-{
-    void  *buffer;
-    size_t len = size(iter);
-    snew_aligned(buffer, len*multiplier, 64);
-    memcpy(buffer, next(iter), len);
-    return buffer;
-}
-
-void cnext(packet_iter *iter, void *buffer)
-{
-    size_t bsize = size(iter);
-    memcpy(buffer, next(iter), bsize);
 }

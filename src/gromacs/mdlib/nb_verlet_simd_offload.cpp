@@ -46,6 +46,7 @@
 #include "gromacs/math/vec.h"
 #include "nb_verlet_simd_offload.h"
 #include "packdata.h"
+#include "external/pfun/pfun.h"
 
 gmx_offload static gmx_bool bRefreshNbl         = TRUE;
 gmx_offload char           *phi_in_packet;
@@ -70,7 +71,7 @@ static offload_unpack_data unpack_data;
 // "Mirror" malloc with corresponding renew and free. Memory is allocated on both
 // host and coprocessor, and the two are linked to support offloading operations.
 
-void *mmalloc(size_t s, void *off_ptr)
+char *mmalloc(size_t s, void *off_ptr)
 {
     char *p;
     snew_aligned(p, s, 64);
@@ -83,42 +84,41 @@ void *mmalloc(size_t s, void *off_ptr)
     return p;
 }
 
-void mfree(void *p, void *off_ptr_val)
+void mfree(char *p, void *off_ptr_val)
 {
-    char *c = (char *)p;
 #pragma offload target(mic:0) nocopy(off_ptr_val:length(0) FREE preallocated targetptr)
     {
         sfree_aligned(off_ptr_val);
     }
-    sfree_aligned(c);
+    sfree_aligned(p);
 }
 
 // Helper method for copying packet buffer into an external buffer.
 // Allocates buffer and updates both the passed buffer pointer and
 // passed buffer size as needed. Advances iter to the next buffer.
+template<typename T>
 gmx_offload
-void *refresh_buffer(void *buffer, size_t *bsize, packet_iter *iter)
+T *refresh_buffer(T **buf_ptr, size_t *bsize, packet_iter *iter)
 {
-    void **buf = (void **)buffer;
     if (size(iter) <= 0)
     {
-        next(iter);
+        next<T>(iter);
     }
     else if (size(iter) <= *bsize)
     {
-        cnext(iter, *buf);
+        cnext<T>(iter, *buf_ptr);
     }
     else
     {
-        if (*buf != NULL)
+        if (*buf_ptr != NULL)
         {
-            sfree_aligned(*buf);
+            sfree_aligned(*buf_ptr);
         }
         *bsize = 2*size(iter);
-        *buf   = anext(iter, 2);
+        *buf_ptr   = anext<T>(iter, 2);
     }
 
-    return *buf;
+    return *buf_ptr;
 }
 
 void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
@@ -343,6 +343,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 
     // TODO: What about nbl->excl ?
 
+    static PFun offload_pfun;
+    auto offload_fun = [&]() {
 #pragma offload target(mic:0) \
     nocopy(nbl_lists) \
     nocopy(nbl_buffer) \
@@ -370,33 +372,33 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         {
             nbl_ptr = nbl_lists->nbl;
         }
-        refresh_buffer(&nbl_lists, &phi_buffer_sizes[0], it);
-        refresh_buffer(&nbl_buffer, &phi_buffer_sizes[1], it);
-        refresh_buffer(&ci_buffer, &phi_buffer_sizes[2], it);
-        refresh_buffer(&sci_buffer, &phi_buffer_sizes[3], it);
-        refresh_buffer(&cj_buffer, &phi_buffer_sizes[4], it);
-        refresh_buffer(&cj4_buffer, &phi_buffer_sizes[5], it);
-        nbnxn_atomdata_t *nbat = next(it);
-        nbat->nbfp              = next(it);
-        nbat->nbfp_comb         = next(it);
-        nbat->nbfp_s4           = next(it);
-        nbat->type              = refresh_buffer(&type_buffer, &phi_buffer_sizes[6], it);
-        nbat->lj_comb           = refresh_buffer(&lj_comb_buffer, &phi_buffer_sizes[7], it);
-        nbat->q                 = refresh_buffer(&q_buffer, &phi_buffer_sizes[8], it);
-        nbat->energrp           = next(it);
-        nbat->shift_vec         = next(it);
-        nbat->x                 = next(it);
+        refresh_buffer<nbnxn_pairlist_set_t>(&nbl_lists, &phi_buffer_sizes[0], it);
+        refresh_buffer<nbnxn_pairlist_t>(&nbl_buffer, &phi_buffer_sizes[1], it);
+        refresh_buffer<nbnxn_ci_t>(&ci_buffer, &phi_buffer_sizes[2], it);
+        refresh_buffer<nbnxn_sci_t>(&sci_buffer, &phi_buffer_sizes[3], it);
+        refresh_buffer<nbnxn_cj_t>(&cj_buffer, &phi_buffer_sizes[4], it);
+        refresh_buffer<nbnxn_cj4_t>(&cj4_buffer, &phi_buffer_sizes[5], it);
+        nbnxn_atomdata_t *nbat  = next<nbnxn_atomdata_t>(it);
+        nbat->nbfp              = next<real>(it);
+        nbat->nbfp_comb         = next<real>(it);
+        nbat->nbfp_s4           = next<real>(it);
+        nbat->type              = refresh_buffer<int>(&type_buffer, &phi_buffer_sizes[6], it);
+        nbat->lj_comb           = refresh_buffer<real>(&lj_comb_buffer, &phi_buffer_sizes[7], it);
+        nbat->q                 = refresh_buffer<real>(&q_buffer, &phi_buffer_sizes[8], it);
+        nbat->energrp           = next<int>(it);
+        nbat->shift_vec         = next<rvec>(it);
+        nbat->x                 = next<real>(it);
         nbnxn_atomdata_t *phi_nbat = get_nbat_for_offload(nbat->id);
         nbat->out               = phi_nbat->out;
         nbat->simd_2xnn_diagonal_j_minus_i = phi_nbat->simd_2xnn_diagonal_j_minus_i;
         nbat->simd_exclusion_filter1 = phi_nbat->simd_exclusion_filter1;
         nbat->simd_exclusion_filter2 = phi_nbat->simd_exclusion_filter2;
-        nbat->buffer_flags.flag = next(it);
-        interaction_const_t *ic_buffer = next(it);
-        rvec                *shift_vec = next(it);
+        nbat->buffer_flags.flag = next<gmx_bitmask_t>(it);
+        interaction_const_t *ic_buffer = next<interaction_const_t>(it);
+        rvec                *shift_vec = next<rvec>(it);
         // TODO: Remove from package - not used.
-        real                *Vc   = next(it);
-        real                *Vvdw = next(it);
+        real                *Vc   = next<real>(it);
+        real                *Vvdw = next<real>(it);
         sfree(it);
 
         // Neighbor list pointer assignments
@@ -409,7 +411,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         nbl_lists->nbl = nbl_ptr;
         if (nbl_lists->nbl == NULL)
         {
-            nbl_lists->nbl = malloc(sizeof(nbnxn_pairlist_t *)*nbl_lists->nnbl);
+            nbl_lists->nbl = (nbnxn_pairlist_t **)malloc(sizeof(nbnxn_pairlist_t *)*nbl_lists->nnbl);
         }
 
         int i;
@@ -461,7 +463,10 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
             nbat->out[0].f, sizeof(real) * nbat->natoms * nbat->fstride
         };
         packdata(phi_out_packet, phi_buffers, 4);
-    }
+    };};
+    PFunTask<decltype((offload_fun))> *offload_task = new PFunTask<decltype((offload_fun))>(offload_fun);
+    offload_pfun.run(offload_task);
+    offload_pfun.wait();
     unpack_data.out_packet_addr = cpu_in_packet;
     unpack_data.cpu_buffers[0]  = nbat->out[0].fshift;
     unpack_data.cpu_buffers[1]  = Vc;

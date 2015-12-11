@@ -241,6 +241,7 @@ void gmx_srenew_impl(const char *name, const char *file, int line,
 }
 /** C++ helper for smalloc(). */
 template <typename T> static inline
+gmx_offload
 void gmx_smalloc_impl(const char *name, const char *file, int line,
                       T * &ptr, size_t size)
 {
@@ -248,6 +249,7 @@ void gmx_smalloc_impl(const char *name, const char *file, int line,
 }
 /** C++ helper for snew_aligned(). */
 template <typename T> static inline
+gmx_offload
 void gmx_snew_aligned_impl(const char *name, const char *file, int line,
                            T * &ptr, size_t nelem, size_t alignment)
 {
