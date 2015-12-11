@@ -344,7 +344,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
     // TODO: What about nbl->excl ?
 
     static PFun offload_pfun;
-    auto offload_fun = [&]() {
+    auto offload_fun = [ewald_excl, flags, clearF, packet_in_size, packet_out_size]() {
 #pragma offload target(mic:0) \
     nocopy(nbl_lists) \
     nocopy(nbl_buffer) \
