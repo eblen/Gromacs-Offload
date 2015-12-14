@@ -46,7 +46,6 @@
 #include "gromacs/math/vec.h"
 #include "nb_verlet_simd_offload.h"
 #include "packdata.h"
-#include "external/pfun/pfun.h"
 
 gmx_offload static gmx_bool bRefreshNbl         = TRUE;
 gmx_offload char           *phi_in_packet;
@@ -342,9 +341,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
     //                nbat->simd_exclusion_filter2       = simd_exclusion_filter2_p;
 
     // TODO: What about nbl->excl ?
-
-    static PFun offload_pfun;
-    auto offload_fun = [ewald_excl, flags, clearF, packet_in_size, packet_out_size]() {
 #pragma offload target(mic:0) \
     nocopy(nbl_lists) \
     nocopy(nbl_buffer) \
@@ -463,10 +459,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
             nbat->out[0].f, sizeof(real) * nbat->natoms * nbat->fstride
         };
         packdata(phi_out_packet, phi_buffers, 4);
-    };};
-    PFunTask<decltype((offload_fun))> *offload_task = new PFunTask<decltype((offload_fun))>(offload_fun);
-    offload_pfun.run(offload_task);
-    offload_pfun.wait();
+    };
     unpack_data.out_packet_addr = cpu_in_packet;
     unpack_data.cpu_buffers[0]  = nbat->out[0].fshift;
     unpack_data.cpu_buffers[1]  = Vc;
