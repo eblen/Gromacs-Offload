@@ -353,8 +353,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
     nocopy(q_buffer) \
     nocopy(phi_buffer_sizes) \
     in (cpu_out_packet[0:packet_in_size] :  into(phi_in_packet[0:packet_in_size]) REUSE targetptr) \
-    out(phi_out_packet[0:packet_out_size] : into(cpu_in_packet[0:packet_out_size]) REUSE targetptr) \
-    signal(&off_signal)
+    out(phi_out_packet[0:packet_out_size] : into(cpu_in_packet[0:packet_out_size]) REUSE targetptr)
+    // signal(&off_signal)
     {
         // Unpack data
         packet_iter *it;
@@ -469,7 +469,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 
 void wait_for_offload()
 {
-#pragma offload_wait target(mic:0) wait(&off_signal)
+// #pragma offload_wait target(mic:0) wait(&off_signal)
     unpackdata(unpack_data.out_packet_addr, unpack_data.cpu_buffers, 4);
 }
 
