@@ -57,6 +57,7 @@
 #include "gromacs/pbcutil/ishift.h"
 #include "gromacs/simd/simd.h"
 #include "gromacs/utility/gmxomp.h"
+#include "gromacs/utility/gmxmpi.h"
 #include "gromacs/utility/smalloc.h"
 #include "gromacs/mdlib/nb_verlet_simd_offload.h"
 
@@ -175,7 +176,7 @@ void nbnxn_atomdata_realloc(nbnxn_atomdata_t *nbat, int n, int nb_kernel_type)
                            nbat->natoms*nbat->fstride*sizeof(*nbat->out[0].f),
                            n*nbat->fstride*sizeof(*nbat->out[0].f),
                            nbat->alloc, nbat->free);
-#pragma offload target(mic:0) in(nbat:length(1))
+#pragma offload target(mic:(gmx_mpi_get_phi_card())) in(nbat:length(1))
         {
             for (t = 0; t < nbat->nout; t++)
             {
@@ -539,7 +540,7 @@ nbnxn_atomdata_init_simple_exclusion_masks(nbnxn_atomdata_t *nbat, int nb_kernel
     }
     else
     {
-#pragma offload target(mic:0) in(nbat:length(1))
+#pragma offload target(mic:(gmx_mpi_get_phi_card())) in(nbat:length(1))
     	{
             nbnxn_atomdata_t *nbat_for_phi = get_nbat_for_offload(nbat->id);
     		snew_aligned(nbat_for_phi->simd_2xnn_diagonal_j_minus_i, simd_width, NBNXN_MEM_ALIGN);
@@ -579,7 +580,7 @@ nbnxn_atomdata_init_simple_exclusion_masks(nbnxn_atomdata_t *nbat, int nb_kernel
     }
     else
     {
-#pragma offload target(mic:0) in(nbat:length(1))
+#pragma offload target(mic:(gmx_mpi_get_phi_card())) in(nbat:length(1))
     	{
             nbnxn_atomdata_t *nbat_for_phi = get_nbat_for_offload(nbat->id);
     		snew_aligned(nbat_for_phi->simd_exclusion_filter1, simd_excl_size,   NBNXN_MEM_ALIGN);
@@ -898,7 +899,7 @@ void nbnxn_atomdata_init(FILE *fp,
                                    nb_kernel_type,
                                    nbat->nenergrp, 1<<nbat->neg_2log,
                                    nbat->alloc);
-#pragma offload target(mic:0) in(nbat:length(1))
+#pragma offload target(mic:(gmx_mpi_get_phi_card())) in(nbat:length(1))
         {
             nbnxn_atomdata_t *nbat_for_phi = get_nbat_for_offload(nbat->id);
             snew(nbat_for_phi->out, nbat->nout);

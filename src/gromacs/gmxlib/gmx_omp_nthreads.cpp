@@ -53,6 +53,7 @@
 #include "gromacs/utility/fatalerror.h"
 #include "gromacs/utility/gmxassert.h"
 #include "gromacs/utility/gmxomp.h"
+#include "gromacs/utility/gmxmpi.h"
 
 /** Structure with the number of threads for each OpenMP multi-threaded
  *  algorithmic module in mdrun. */
@@ -198,7 +199,7 @@ static void pick_module_nthreads(FILE *fplog, int m,
     /* Logic needs to change if we do more than nonbonded on the coprocessor */
     if (bUseOffloadedKernel && m == emntNonbonded)
     {
-#pragma offload target(mic:0)
+#pragma offload target(mic:(gmx_mpi_get_phi_card()))
         {
             gmx_omp_nthreads_set(m, nth);
         }

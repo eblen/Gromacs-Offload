@@ -51,6 +51,13 @@
 
 #include "config.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+int gmx_mpi_get_rank();
+int gmx_mpi_get_phi_card();
+
 /*! \cond */
 #ifdef GMX_LIB_MPI
 /* MPI C++ binding is deprecated and can cause name conflicts (e.g. stdio/mpi seek) */
@@ -83,5 +90,9 @@ typedef void* MPI_Group;
 #endif
 #endif
 //! \endcond
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

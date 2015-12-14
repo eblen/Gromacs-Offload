@@ -46,6 +46,7 @@
 #include "gromacs/math/vec.h"
 #include "nb_verlet_simd_offload.h"
 #include "packdata.h"
+#include "gromacs/utility/gmxmpi.h"
 
 gmx_offload static gmx_bool bRefreshNbl         = TRUE;
 gmx_offload char           *phi_in_packet;
@@ -75,7 +76,7 @@ char *mmalloc(size_t s, void *off_ptr)
     char *p;
     snew_aligned(p, s, 64);
     char *off_ptr_val;
-#pragma offload target(mic:0) nocopy(off_ptr_val:length(s) ALLOC preallocated targetptr)
+#pragma offload target(mic:(gmx_mpi_get_phi_card())) nocopy(off_ptr_val:length(s) ALLOC preallocated targetptr)
     {
         snew_aligned(off_ptr_val, s, 64);
     }
@@ -85,7 +86,7 @@ char *mmalloc(size_t s, void *off_ptr)
 
 void mfree(char *p, void *off_ptr_val)
 {
-#pragma offload target(mic:0) nocopy(off_ptr_val:length(0) FREE preallocated targetptr)
+#pragma offload target(mic:(gmx_mpi_get_phi_card())) nocopy(off_ptr_val:length(0) FREE preallocated targetptr)
     {
         sfree_aligned(off_ptr_val);
     }
@@ -341,7 +342,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
     //                nbat->simd_exclusion_filter2       = simd_exclusion_filter2_p;
 
     // TODO: What about nbl->excl ?
-#pragma offload target(mic:0) \
+#pragma offload target(mic:(gmx_mpi_get_phi_card())) \
     nocopy(nbl_lists) \
     nocopy(nbl_buffer) \
     nocopy(ci_buffer) \
@@ -469,7 +470,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 
 void wait_for_offload()
 {
-// #pragma offload_wait target(mic:0) wait(&off_signal)
+// #pragma offload_wait target(mic:(gmx_mpi_get_phi_card())) wait(&off_signal)
     unpackdata(unpack_data.out_packet_addr, unpack_data.cpu_buffers, 4);
 }
 
