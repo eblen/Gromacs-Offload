@@ -25,7 +25,7 @@ boost
     template <class Tag,class T>
     inline
     std::string
-    error_info_name( error_info<Tag,T> const & /* x */ )
+    error_info_name( error_info<Tag,T> const & x )
         {
         return tag_type_name<Tag>();
         }

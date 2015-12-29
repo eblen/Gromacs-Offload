@@ -17,7 +17,7 @@
 #include <boost/exception/exception.hpp>
 #include <boost/exception/get_error_info.hpp>
 #include <boost/exception/info.hpp>
-//GMX_REMOVED: #include <boost/exception/info_tuple.hpp>
+#include <boost/exception/info_tuple.hpp>
 #include <boost/exception/errinfo_api_function.hpp>
 #include <boost/exception/errinfo_at_line.hpp>
 #include <boost/exception/errinfo_errno.hpp>
