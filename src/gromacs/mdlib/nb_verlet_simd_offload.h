@@ -70,7 +70,7 @@ void setRefreshNblForOffload();
  * possible to use multiple kernels, and so offloading could be used for only
  * certain atom groups.
  */
-gmx_bool offloadedKernelEnabled(int kernel_type);
+gmx_bool offloadedKernelEnabled();
 
 #ifdef __cplusplus
 }

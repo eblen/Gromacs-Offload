@@ -482,7 +482,7 @@ static void do_nb_verlet(t_forcerec *fr,
 
     bUsingGpuKernels = (nbvg->kernel_type == nbnxnk8x8x8_GPU);
 
-    if (!bUsingGpuKernels && !offloadedKernelEnabled(nbvg->kernel_type))
+    if (!bUsingGpuKernels && !offloadedKernelEnabled())
     {
         wallcycle_sub_start(wcycle, ewcsNONBONDED);
     }
@@ -514,25 +514,23 @@ static void do_nb_verlet(t_forcerec *fr,
                                   enerd->grpp.ener[egBHAMSR] :
                                   enerd->grpp.ener[egLJSR]);
             break;
+
         case nbnxnk4xN_SIMD_2xNN:
-            if (offloadedKernelEnabled(nbvg->kernel_type))
-            {
-                nbnxn_kernel_simd_2xnn_offload(fr, ic, enerd, flags, ilocality, clearF, nrnb);
-            }
-            else
-            {
-                nbnxn_kernel_simd_2xnn(&nbvg->nbl_lists,
-                                       nbvg->nbat, ic,
-                                       nbvg->ewald_excl,
-                                       fr->shift_vec,
-                                       flags,
-                                       clearF,
-                                       fr->fshift[0],
-                                       enerd->grpp.ener[egCOULSR],
-                                       fr->bBHAM ?
-                                       enerd->grpp.ener[egBHAMSR] :
-                                       enerd->grpp.ener[egLJSR]);
-            }
+            nbnxn_kernel_simd_2xnn(&nbvg->nbl_lists,
+                                   nbvg->nbat, ic,
+                                   nbvg->ewald_excl,
+                                   fr->shift_vec,
+                                   flags,
+                                   clearF,
+                                   fr->fshift[0],
+                                   enerd->grpp.ener[egCOULSR],
+                                   fr->bBHAM ?
+                                   enerd->grpp.ener[egBHAMSR] :
+                                   enerd->grpp.ener[egLJSR]);
+            break;
+
+        case nbnxnk4xN_SIMD_2xNN_MIC:
+            nbnxn_kernel_simd_2xnn_offload(fr, ic, enerd, flags, ilocality, clearF, nrnb);
             break;
 
         case nbnxnk8x8x8_GPU:
@@ -557,7 +555,7 @@ static void do_nb_verlet(t_forcerec *fr,
             gmx_incons("Invalid nonbonded kernel type passed!");
 
     }
-    if (!bUsingGpuKernels && !offloadedKernelEnabled(nbvg->kernel_type))
+    if (!bUsingGpuKernels && !offloadedKernelEnabled())
     {
         wallcycle_sub_stop(wcycle, ewcsNONBONDED);
     }
@@ -783,7 +781,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
     bSepLRF       = (bDoLongRange && bDoForces && (flags & GMX_FORCE_SEPLRF));
     bUseGPU       = fr->nbv->bUseGPU;
     bUseOrEmulGPU = bUseGPU || (nbv->grp[0].kernel_type == nbnxnk8x8x8_PlainC);
-    bUseOffloadedKernel = offloadedKernelEnabled(nbv->grp[0].kernel_type);
+    bUseOffloadedKernel = offloadedKernelEnabled();
 
     if (bStateChanged)
     {
@@ -1215,23 +1213,29 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         do_nb_verlet(fr, ic, enerd, flags, eintLocal, enbvClearFYes, nrnb, wcycle);
     }
 
-    if ((!bUseOrEmulGPU || bDiffKernels) && !bUseOffloadedKernel)
+    dprintf(2, "Entering nonlocal land\n");
+    dprintf(2, "Two nbats are %p and %p %d %d\n", nbv->grp[0].nbat, nbv->grp[1].nbat, nbv->grp[0].kernel_type, nbv->grp[1].kernel_type);
+    if ((!(bUseOrEmulGPU || bUseOffloadedKernel) || bDiffKernels))
     {
         int aloc;
 
         if (DOMAINDECOMP(cr))
         {
+        	dprintf(2, "Doing nonlocal compute\n");
             do_nb_verlet(fr, ic, enerd, flags, eintNonlocal,
                          bDiffKernels ? enbvClearFYes : enbvClearFNo,
                          nrnb, wcycle);
         }
 
-        if (!bUseOrEmulGPU)
+        dprintf(2, "Doing reductions - picking buffer\n");
+        if (!bUseOrEmulGPU && !bUseOffloadedKernel)
         {
+        	dprintf(2, "Picked the local buffer!\n");
             aloc = eintLocal;
         }
         else
         {
+        	dprintf(2, "Picked the nonlocal buffer\n");
             aloc = eintNonlocal;
         }
 
@@ -1253,10 +1257,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         {
             /* This is not in a subcounter because it takes a
                negligible and constant-sized amount of time */
-            if (!bUseOffloadedKernel)
-            {
-                nbnxn_atomdata_add_nbat_fshift_to_fshift(nbv->grp[aloc].nbat, fr->fshift);
-            }
+            nbnxn_atomdata_add_nbat_fshift_to_fshift(nbv->grp[aloc].nbat, fr->fshift);
         }
     }
 

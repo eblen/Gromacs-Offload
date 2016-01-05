@@ -1592,12 +1592,6 @@ static void pick_nbnxn_kernel_cpu(const t_inputrec gmx_unused *ir,
          * use of HT, use 4x8 to avoid a potential performance hit.
          * On Intel Haswell 4x8 is always faster.
          */
-
-        /* Only 2xNN is currently supported for offload, but it is okay to have
-         * 4xN only (offloading is just not used) */
-#ifdef GMX_OFFLOAD
-        *kernel_type = nbnxnk4xN_SIMD_2xNN;
-#else
         *kernel_type = nbnxnk4xN_SIMD_4xN;
 #ifndef GMX_SIMD_HAVE_FMA
         if (EEL_PME_EWALD(ir->coulombtype) ||
@@ -1608,7 +1602,6 @@ static void pick_nbnxn_kernel_cpu(const t_inputrec gmx_unused *ir,
              */
             *kernel_type = nbnxnk4xN_SIMD_2xNN;
         }
-#endif
 #endif
 #endif  /* GMX_NBNXN_SIMD_2XNN && GMX_NBNXN_SIMD_4XN */
 
@@ -1670,6 +1663,7 @@ const char *lookup_nbnxn_kernel_name(int kernel_type)
             break;
         case nbnxnk4xN_SIMD_4xN:
         case nbnxnk4xN_SIMD_2xNN:
+        case nbnxnk4xN_SIMD_2xNN_MIC:
 #ifdef GMX_NBNXN_SIMD
 #if defined GMX_SIMD_X86_SSE2
             returnvalue = "SSE2";
@@ -1705,6 +1699,7 @@ static void pick_nbnxn_kernel(FILE                *fp,
                               gmx_bool             use_simd_kernels,
                               gmx_bool             bUseGPU,
                               gmx_bool             bEmulateGPU,
+                              gmx_bool             bUseOffloadedKernel,
                               const t_inputrec    *ir,
                               int                 *kernel_type,
                               int                 *ewald_excl,
@@ -1727,6 +1722,11 @@ static void pick_nbnxn_kernel(FILE                *fp,
     else if (bUseGPU)
     {
         *kernel_type = nbnxnk8x8x8_GPU;
+    }
+    else if (bUseOffloadedKernel)
+    {
+        *kernel_type = nbnxnk4xN_SIMD_2xNN_MIC;
+        *ewald_excl = ewaldexclAnalytical;
     }
 
     if (*kernel_type == nbnxnkNotSet)
@@ -2121,18 +2121,27 @@ static void init_nb_verlet(FILE                *fp,
         if (i == 0) /* local */
         {
             pick_nbnxn_kernel(fp, cr, fr->use_simd_kernels,
-                              nbv->bUseGPU, bEmulateGPU, ir,
+                              nbv->bUseGPU, bEmulateGPU,
+							  offloadedKernelEnabled(), ir,
                               &nbv->grp[i].kernel_type,
                               &nbv->grp[i].ewald_excl,
                               fr->bNonbonded);
         }
         else /* non-local */
         {
-            if (nbpu_opt != NULL && strcmp(nbpu_opt, "gpu_cpu") == 0)
+        	if (offloadedKernelEnabled())
+        	{
+                pick_nbnxn_kernel(fp, cr, fr->use_simd_kernels,
+                                  FALSE, FALSE, FALSE, ir,
+                                  &nbv->grp[i].kernel_type,
+                                  &nbv->grp[i].ewald_excl,
+                                  fr->bNonbonded);
+        	}
+        	else if (nbpu_opt != NULL && strcmp(nbpu_opt, "gpu_cpu") == 0)
             {
                 /* Use GPU for local, select a CPU kernel for non-local */
                 pick_nbnxn_kernel(fp, cr, fr->use_simd_kernels,
-                                  FALSE, FALSE, ir,
+                                  FALSE, FALSE, FALSE, ir,
                                   &nbv->grp[i].kernel_type,
                                   &nbv->grp[i].ewald_excl,
                                   fr->bNonbonded);

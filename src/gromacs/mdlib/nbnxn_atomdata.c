@@ -157,7 +157,7 @@ void nbnxn_atomdata_realloc(nbnxn_atomdata_t *nbat, int n, int nb_kernel_type)
                        n*nbat->xstride*sizeof(*nbat->x),
                        nbat->alloc, nbat->free);
 
-    if (!offloadedKernelEnabled(nb_kernel_type))
+    if ((nbat->id > 0) || (!offloadedKernelEnabled()))
     {
         for (t = 0; t < nbat->nout; t++)
         {
@@ -212,8 +212,9 @@ static void nbnxn_atomdata_output_init(nbnxn_atomdata_output_t *out,
 
     ma((void **)&out->Vc, out->nV*sizeof(*out->Vc  ));
 
-    if (nb_kernel_type == nbnxnk4xN_SIMD_4xN ||
-        nb_kernel_type == nbnxnk4xN_SIMD_2xNN)
+    if (nb_kernel_type == nbnxnk4xN_SIMD_4xN  ||
+        nb_kernel_type == nbnxnk4xN_SIMD_2xNN ||
+        nb_kernel_type == nbnxnk4xN_SIMD_2xNN_MIC)
     {
         cj_size  = nbnxn_kernel_to_cj_size(nb_kernel_type);
 
@@ -507,7 +508,7 @@ void
 nbnxn_atomdata_init_simple_exclusion_masks(nbnxn_atomdata_t *nbat, int nb_kernel_type)
 {
     int       i, j;
-    gmx_bool bOffloadMasks = offloadedKernelEnabled(nb_kernel_type);
+    gmx_bool bOffloadMasks = offloadedKernelEnabled() && (nbat->id == 0);
     const int simd_width = bOffloadMasks ? 16 : GMX_SIMD_REAL_WIDTH;
     int       simd_excl_size;
     /* Set the diagonal cluster pair exclusion mask setup data.
@@ -802,8 +803,9 @@ void nbnxn_atomdata_init(FILE *fp,
             gmx_incons("Unknown enbnxninitcombrule");
     }
 
-    bSIMD = (nb_kernel_type == nbnxnk4xN_SIMD_4xN ||
-             nb_kernel_type == nbnxnk4xN_SIMD_2xNN);
+    bSIMD = (nb_kernel_type == nbnxnk4xN_SIMD_4xN  ||
+             nb_kernel_type == nbnxnk4xN_SIMD_2xNN ||
+             nb_kernel_type == nbnxnk4xN_SIMD_2xNN_MIC);
 
     set_lj_parameter_data(nbat, bSIMD);
 
@@ -879,7 +881,7 @@ void nbnxn_atomdata_init(FILE *fp,
     /* Initialize the output data structures */
     nbat->nout    = nout;
     nbat->nalloc  = 0;
-    if (!offloadedKernelEnabled(nb_kernel_type))
+    if (nbat->id > 0 || !offloadedKernelEnabled())
     {
         snew(nbat->out, nbat->nout);
         for (i = 0; i < nbat->nout; i++)

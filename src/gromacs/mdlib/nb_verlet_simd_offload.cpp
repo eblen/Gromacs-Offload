@@ -479,10 +479,10 @@ void setRefreshNblForOffload()
     bRefreshNbl = TRUE;
 }
 
-gmx_bool offloadedKernelEnabled(int kernel_type)
+gmx_bool offloadedKernelEnabled()
 {
 #if defined GMX_OFFLOAD && defined GMX_NBNXN_SIMD_2XNN
-    return (kernel_type == nbnxnk4xN_SIMD_2xNN);
+    return TRUE;
 #else
     return FALSE;
 #endif

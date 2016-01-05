@@ -242,6 +242,7 @@ int nbnxn_kernel_to_ci_size(int nb_kernel_type)
         case nbnxnk4x4_PlainC:
         case nbnxnk4xN_SIMD_4xN:
         case nbnxnk4xN_SIMD_2xNN:
+        case nbnxnk4xN_SIMD_2xNN_MIC:
             return NBNXN_CPU_CLUSTER_I_SIZE;
         case nbnxnk8x8x8_GPU:
         case nbnxnk8x8x8_PlainC:
@@ -276,6 +277,7 @@ int nbnxn_kernel_to_cj_size(int nb_kernel_type)
             cj_size = nbnxn_simd_width;
             break;
         case nbnxnk4xN_SIMD_2xNN:
+        case nbnxnk4xN_SIMD_2xNN_MIC:
             cj_size = nbnxn_simd_width/2;
             break;
         case nbnxnk8x8x8_GPU:
@@ -318,6 +320,7 @@ gmx_bool nbnxn_kernel_pairlist_simple(int nb_kernel_type)
         case nbnxnk4x4_PlainC:
         case nbnxnk4xN_SIMD_4xN:
         case nbnxnk4xN_SIMD_2xNN:
+        case nbnxnk4xN_SIMD_2xNN_MIC:
             return TRUE;
 
         default:
@@ -1942,7 +1945,7 @@ void nbnxn_grid_add_simple(nbnxn_search_t    nbs,
 
     if (grid->bSimple)
     {
-        gmx_incons("nbnxn_grid_simple called with a simple grid");
+        // gmx_incons("nbnxn_grid_simple called with a simple grid");
     }
 
     ncd = grid->na_sc/NBNXN_CPU_CLUSTER_I_SIZE;
@@ -2579,7 +2582,7 @@ void nbnxn_init_pairlist_set(nbnxn_pairlist_set_t *nbl_list,
 
     nbl_list->nnbl = gmx_omp_nthreads_get(emntNonbonded);
 
-    if (!nbl_list->bCombined && !offloadedKernelEnabled(nb_kernel_type) &&
+    if (!nbl_list->bCombined && !offloadedKernelEnabled() &&
         nbl_list->nnbl > NBNXN_BUFFERFLAG_MAX_THREADS)
     {
         gmx_fatal(FARGS, "%d OpenMP threads were requested. Since the non-bonded force buffer reduction is prohibitively slow with more than %d threads, we do not allow this. Use %d or less OpenMP threads.",
@@ -5380,6 +5383,7 @@ static void nbnxn_make_pairlist_part(const nbnxn_search_t nbs,
 #endif
 #ifdef GMX_NBNXN_SIMD_2XNN
                                         case nbnxnk4xN_SIMD_2xNN:
+                                        case nbnxnk4xN_SIMD_2xNN_MIC:
                                             check_subcell_list_space_simple(nbl, ci_to_cj(na_cj_2log, cl-cf)+2);
                                             make_cluster_list_simd_2xnn(gridj,
                                                                         nbl, ci, cf, cl,
@@ -5702,6 +5706,7 @@ void nbnxn_make_pairlist(const nbnxn_search_t  nbs,
 #endif
 #ifdef GMX_NBNXN_SIMD_2XNN
             case nbnxnk4xN_SIMD_2xNN:
+            case nbnxnk4xN_SIMD_2xNN_MIC:
                 nbs->icell_set_x = icell_set_x_simd_2xnn;
                 break;
 #endif
