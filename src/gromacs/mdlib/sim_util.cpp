@@ -517,7 +517,9 @@ static void do_nb_verlet(t_forcerec *fr,
         case nbnxnk4xN_SIMD_2xNN:
             if (offloadedKernelEnabled(nbvg->kernel_type))
             {
-                nbnxn_kernel_simd_2xnn_offload(fr, ic, enerd, flags, ilocality, clearF, nrnb);
+                osig os = nbnxn_kernel_simd_2xnn_offload(fr, ic, enerd, flags, ilocality, clearF, nrnb);
+                dprintf(2, "Got offload signal %d\n", os);
+                nbvg->nbat->offload_signal = os;
             }
             else
             {
@@ -1213,9 +1215,13 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
     {
         /* Maybe we should move this into do_force_lowlevel */
         do_nb_verlet(fr, ic, enerd, flags, eintLocal, enbvClearFYes, nrnb, wcycle);
+        if (DOMAINDECOMP(cr))
+        {
+            do_nb_verlet(fr, ic, enerd, flags, eintNonlocal, enbvClearFYes, nrnb, wcycle);
+        }
     }
 
-    if ((!bUseOrEmulGPU || bDiffKernels) && !bUseOffloadedKernel)
+    if (!bUseOrEmulGPU || bDiffKernels)
     {
         int aloc;
 
@@ -1332,6 +1338,28 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         }
     }
 
+    if (bUseOffloadedKernel)
+    {
+    	int ilocality;
+    	int num_locality = DOMAINDECOMP(cr) ? 2 : 1;
+    	for (ilocality = 0; ilocality < num_locality; ilocality++)
+    	{
+    		dprintf(2, "Sending offload signal %d\n", fr->nbv->grp[ilocality].nbat->offload_signal);
+            wait_for_offload(fr->nbv->grp[ilocality].nbat->offload_signal);
+            wallcycle_start(wcycle, ewcNB_XF_BUF_OPS);
+            wallcycle_sub_start(wcycle, ewcsNB_F_BUF_OPS);
+            nbnxn_atomdata_add_nbat_f_to_f_final(fr->nbv->nbs, eatAll,
+                                                 fr->nbv->grp[ilocality].nbat, f,
+                                                 gmx_omp_nthreads_get(emntDefault));
+            for (j = 0; j < DIM * SHIFTS; j++)
+            {
+                ((real *)fr->fshift)[j] += fr->nbv->grp[ilocality].nbat->out[0].fshift[j];
+            }
+            wallcycle_sub_stop(wcycle, ewcsNB_F_BUF_OPS);
+            wallcycle_stop(wcycle, ewcNB_XF_BUF_OPS);
+    	}
+    }
+
     if (bDoForces && DOMAINDECOMP(cr))
     {
         if (bUseGPU)
@@ -1430,22 +1458,6 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         wallcycle_sub_start(wcycle, ewcsNB_F_BUF_OPS);
         nbnxn_atomdata_add_nbat_f_to_f(nbv->nbs, eatLocal,
                                        nbv->grp[eintLocal].nbat, f);
-        wallcycle_sub_stop(wcycle, ewcsNB_F_BUF_OPS);
-        wallcycle_stop(wcycle, ewcNB_XF_BUF_OPS);
-    }
-
-    if (bUseOffloadedKernel)
-    {
-        wait_for_offload();
-        wallcycle_start(wcycle, ewcNB_XF_BUF_OPS);
-        wallcycle_sub_start(wcycle, ewcsNB_F_BUF_OPS);
-        nbnxn_atomdata_add_nbat_f_to_f_final(fr->nbv->nbs, eatAll,
-                                             fr->nbv->grp[eintLocal].nbat, f,
-                                             gmx_omp_nthreads_get(emntDefault));
-        for (j = 0; j < DIM * SHIFTS; j++)
-        {
-            ((real *)fr->fshift)[j] += fr->nbv->grp[eintLocal].nbat->out[0].fshift[j];
-        }
         wallcycle_sub_stop(wcycle, ewcsNB_F_BUF_OPS);
         wallcycle_stop(wcycle, ewcNB_XF_BUF_OPS);
     }

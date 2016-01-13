@@ -43,10 +43,12 @@
 extern "C" {
 #endif
 
+typedef int osig;
+
 /* Run 2xnn kernel on Intel Xeon Phi coprocessor. Note that this also does
  * force and fshift reductions, unlike the normal, non-offloaded kernel.
  */
-void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
+osig nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                     interaction_const_t *ic,
                                     gmx_enerdata_t *enerd,
                                     int flags, int ilocality,
@@ -55,7 +57,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 /*
  * Wait for offloaded kernel computation to complete
  */
-void wait_for_offload();
+void wait_for_offload(osig os);
 
 /*
  * Signal to the offloaded kernel that the neighbour list has been refreshed.

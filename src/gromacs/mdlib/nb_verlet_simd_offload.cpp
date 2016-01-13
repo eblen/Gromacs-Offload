@@ -47,12 +47,11 @@
 #include "nb_verlet_simd_offload.h"
 #include "packdata.h"
 #include "external/pfun/pfun.h"
+#include <unistd.h>
 
 gmx_offload static gmx_bool bRefreshNbl         = TRUE;
-gmx_offload char           *phi_in_packet;
-gmx_offload char           *phi_out_packet;
-static float                off_signal = 0;
-gmx_offload static size_t   phi_buffer_sizes[9];
+static float                offload_signal_array[2] = {0};
+gmx_offload static size_t   phi_buffer_sizes[9] = {0};
 
 #define REUSE alloc_if(0) free_if(0)
 #define ALLOC alloc_if(1) free_if(0)
@@ -60,13 +59,59 @@ gmx_offload static size_t   phi_buffer_sizes[9];
 
 #define NUM_OFFLOAD_BUFFERS 21
 
+class offload_buffer
+{
+public:
+    int    nbl_buffer_size;
+    int    ci_buffer_size ;
+    int    sci_buffer_size;
+    int    cj_buffer_size ;
+    int    cj4_buffer_size;
+    size_t current_packet_in_size;
+    size_t current_packet_out_size;
+    nbnxn_pairlist_t *nbl_buffer;
+    nbnxn_ci_t       *ci_buffer;
+    nbnxn_sci_t      *sci_buffer;
+    nbnxn_cj_t       *cj_buffer;
+    nbnxn_cj4_t      *cj4_buffer;
+    int              *type_buffer;
+    real             *lj_comb_buffer;
+    real             *q_buffer;
+    char             *cpu_in_packet;
+    char             *cpu_out_packet;
+    char             *phi_in_packet;
+    char             *phi_out_packet;
+    gmx_offload
+    offload_buffer() :nbl_buffer_size(0),
+    		          ci_buffer_size(0),
+	    		      sci_buffer_size(0),
+		              cj_buffer_size(0),
+			          cj4_buffer_size(0),
+                      current_packet_in_size(0),
+                      current_packet_out_size(0),
+                      nbl_buffer(NULL),
+                      ci_buffer(NULL),
+                      sci_buffer(NULL),
+                      cj_buffer(NULL),
+                      cj4_buffer(NULL),
+                      type_buffer(NULL),
+                      lj_comb_buffer(NULL),
+                      q_buffer(NULL),
+                      cpu_in_packet(NULL),
+                      cpu_out_packet(NULL),
+                      phi_in_packet(NULL),
+                      phi_out_packet(NULL) {}
+};
+
+gmx_offload static offload_buffer offload_buffers_array[2];
+
 typedef struct offload_unpack_data_struct
 {
     char *out_packet_addr;
     void *cpu_buffers[4];
 } offload_unpack_data;
 
-static offload_unpack_data unpack_data;
+static offload_unpack_data unpack_data_array[2];
 
 // "Mirror" malloc with corresponding renew and free. Memory is allocated on both
 // host and coprocessor, and the two are linked to support offloading operations.
@@ -121,7 +166,7 @@ T *refresh_buffer(T **buf_ptr, size_t *bsize, packet_iter *iter)
     return *buf_ptr;
 }
 
-void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
+osig nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                     interaction_const_t *ic,
                                     gmx_enerdata_t *enerd,
                                     int flags, int ilocality,
@@ -132,19 +177,26 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
     gmx_offload static nbnxn_pairlist_set_t *nbl_lists = NULL;
     nbl_lists = &nbvg->nbl_lists;
 
-    static int nbl_buffer_size = 0;
-    static int ci_buffer_size  = 0;
-    static int sci_buffer_size = 0;
-    static int cj_buffer_size  = 0;
-    static int cj4_buffer_size = 0;
-    gmx_offload static nbnxn_pairlist_t *nbl_buffer     = NULL;
-    gmx_offload static nbnxn_ci_t       *ci_buffer      = NULL;
-    gmx_offload static nbnxn_sci_t      *sci_buffer     = NULL;
-    gmx_offload static nbnxn_cj_t       *cj_buffer      = NULL;
-    gmx_offload static nbnxn_cj4_t      *cj4_buffer     = NULL;
-    gmx_offload static int              *type_buffer    = NULL;
-    gmx_offload static real             *lj_comb_buffer = NULL;
-    gmx_offload static real             *q_buffer       = NULL;
+    offload_buffer &obuf = offload_buffers_array[nbvg->nbat->id];
+    int    &nbl_buffer_size = obuf.nbl_buffer_size;
+    int    &ci_buffer_size  = obuf.ci_buffer_size;
+    int    &sci_buffer_size = obuf.sci_buffer_size;
+    int    &cj_buffer_size  = obuf.cj_buffer_size;
+    int    &cj4_buffer_size = obuf.cj4_buffer_size;
+    size_t &current_packet_in_size = obuf.current_packet_in_size;
+    size_t &current_packet_out_size = obuf.current_packet_out_size;
+    nbnxn_pairlist_t *&nbl_buffer     = obuf.nbl_buffer;
+    nbnxn_ci_t       *&ci_buffer      = obuf.ci_buffer;
+    nbnxn_sci_t      *&sci_buffer     = obuf.sci_buffer;
+    nbnxn_cj_t       *&cj_buffer      = obuf.cj_buffer;
+    nbnxn_cj4_t      *&cj4_buffer     = obuf.cj4_buffer;
+    int              *&type_buffer    = obuf.type_buffer;
+    real             *&lj_comb_buffer = obuf.lj_comb_buffer;
+    real             *&q_buffer       = obuf.q_buffer;
+    char             *&cpu_in_packet  = obuf.cpu_in_packet;
+    char             *&cpu_out_packet = obuf.cpu_out_packet;
+    char             *&phi_in_packet  = obuf.phi_in_packet;
+    char             *&phi_out_packet = obuf.phi_out_packet;
 
     if (bRefreshNbl)
     {
@@ -298,9 +350,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 
     // Data needed for force and shift reductions
     // TODO: Compiler complains if this buffer is not offloaded, but it shouldn't be necessary.
-    gmx_offload static char *cpu_out_packet         = NULL;
-    static size_t            current_packet_in_size = 0;
-    size_t                   packet_in_size         = compute_required_size(ibuffers, NUM_OFFLOAD_BUFFERS);
+    size_t packet_in_size = compute_required_size(ibuffers, NUM_OFFLOAD_BUFFERS);
     if (packet_in_size > current_packet_in_size)
     {
         if (cpu_out_packet != NULL)
@@ -321,9 +371,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
     obuffers[3] = (packet_buffer){ // Force
         nbat->out[0].f, sizeof(real) * nbat->natoms * nbat->fstride
     };
-    static char  *cpu_in_packet           = NULL;
-    static size_t current_packet_out_size = 0;
-    size_t        packet_out_size         = compute_required_size(obuffers, 4);
+    size_t packet_out_size = compute_required_size(obuffers, 4);
     if (packet_out_size > current_packet_out_size)
     {
         if (cpu_in_packet != NULL)
@@ -343,23 +391,34 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 
     // TODO: What about nbl->excl ?
 
-    static PFun offload_pfun;
-    auto offload_fun = [ewald_excl, flags, clearF, packet_in_size, packet_out_size]() {
+    static PFun offload_pfun_array[2];
+    int nbat_id = nbvg->nbat->id;
+    PFun &offload_pfun = offload_pfun_array[nbat_id];
+    auto offload_fun = [ewald_excl, flags, clearF, packet_in_size, packet_out_size, nbat_id,
+						cpu_in_packet, cpu_out_packet, phi_in_packet, phi_out_packet]() {
 #pragma offload target(mic:0) \
-    nocopy(nbl_lists) \
-    nocopy(nbl_buffer) \
-    nocopy(ci_buffer) \
-    nocopy(sci_buffer) \
-    nocopy(cj_buffer) \
-    nocopy(cj4_buffer) \
-    nocopy(type_buffer) \
-    nocopy(lj_comb_buffer) \
-    nocopy(q_buffer) \
+	nocopy(nbl_lists) \
     nocopy(phi_buffer_sizes) \
+	nocopy(offload_buffers_array) \
     in (cpu_out_packet[0:packet_in_size] :  into(phi_in_packet[0:packet_in_size]) REUSE targetptr) \
     out(phi_out_packet[0:packet_out_size] : into(cpu_in_packet[0:packet_out_size]) REUSE targetptr) \
-    signal(&off_signal)
+    signal(&offload_signal_array[nbat_id])
     {
+        offload_buffer &obuf = offload_buffers_array[nbat_id];
+        int &nbl_buffer_size = obuf.nbl_buffer_size;
+        int &ci_buffer_size  = obuf.ci_buffer_size;
+        int &sci_buffer_size = obuf.sci_buffer_size;
+        int &cj_buffer_size  = obuf.cj_buffer_size;
+        int &cj4_buffer_size = obuf.cj4_buffer_size;
+        nbnxn_pairlist_t *&nbl_buffer     = obuf.nbl_buffer;
+        nbnxn_ci_t       *&ci_buffer      = obuf.ci_buffer;
+        nbnxn_sci_t      *&sci_buffer     = obuf.sci_buffer;
+        nbnxn_cj_t       *&cj_buffer      = obuf.cj_buffer;
+        nbnxn_cj4_t      *&cj4_buffer     = obuf.cj4_buffer;
+        int              *&type_buffer    = obuf.type_buffer;
+        real             *&lj_comb_buffer = obuf.lj_comb_buffer;
+        real             *&q_buffer       = obuf.q_buffer;
+
         // Unpack data
         packet_iter *it;
         smalloc(it, sizeof(packet_iter));
@@ -467,16 +526,19 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
     PFunTask<decltype((offload_fun))> *offload_task = new PFunTask<decltype((offload_fun))>(offload_fun);
     offload_pfun.run(offload_task);
     offload_pfun.wait();
+    offload_unpack_data &unpack_data = unpack_data_array[nbat->id];
     unpack_data.out_packet_addr = cpu_in_packet;
     unpack_data.cpu_buffers[0]  = nbat->out[0].fshift;
     unpack_data.cpu_buffers[1]  = Vc;
     unpack_data.cpu_buffers[2]  = Vvdw;
     unpack_data.cpu_buffers[3]  = nbat->out[0].f;
+    return nbat->id;
 }
 
-void wait_for_offload()
+void wait_for_offload(osig os)
 {
-#pragma offload_wait target(mic:0) wait(&off_signal)
+#pragma offload_wait target(mic:0) wait(&offload_signal_array[os])
+	offload_unpack_data unpack_data = unpack_data_array[os];
     unpackdata(unpack_data.out_packet_addr, unpack_data.cpu_buffers, 4);
 }
 

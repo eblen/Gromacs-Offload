@@ -2165,7 +2165,7 @@ static void init_nb_verlet(FILE                *fp,
                                 !nbnxn_kernel_pairlist_simple(nbv->grp[i].kernel_type),
                                 nb_alloc, nb_free, nbv->grp[i].kernel_type);
 
-        if (i == 0 ||
+        if (i == 0 || offloadedKernelEnabled(nbv->grp[i].kernel_type) ||
             nbv->grp[0].kernel_type != nbv->grp[i].kernel_type)
         {
             gmx_bool bSimpleList;

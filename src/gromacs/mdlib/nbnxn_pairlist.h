@@ -42,6 +42,7 @@
 
 #include "gromacs/legacyheaders/types/nblist.h"
 #include "gromacs/math/vectypes.h"
+#include "gromacs/mdlib/nb_verlet_simd_offload.h"
 #include "gromacs/utility/basedefinitions.h"
 #include "gromacs/utility/bitmask.h"
 #include "gromacs/utility/real.h"
@@ -250,6 +251,7 @@ typedef struct nbnxn_atomdata_t {
     int                      xstride;         /* stride for a coordinate in x (usually 3 or 4)      */
     int                      fstride;         /* stride for a coordinate in f (usually 3 or 4)      */
     real                    *x;               /* x and possibly q, size natoms*xstride              */
+    osig                     offload_signal;  /* Signal used to wait for async offload              */
 
     /* j-atom minus i-atom index for generating self and Newton exclusions
      * cluster-cluster pairs of the diagonal, for 4xn and 2xnn kernels.
