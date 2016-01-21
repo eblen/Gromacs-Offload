@@ -36,6 +36,7 @@
  */
 #include <stdlib.h>
 #include <immintrin.h>
+#include <array>
 #include "nbnxn_internal.h"
 #include "nbnxn_atomdata.h"
 #include "nb_verlet.h"
@@ -51,7 +52,6 @@
 
 gmx_offload static gmx_bool bRefreshNbl         = TRUE;
 static float                offload_signal_array[2] = {0};
-gmx_offload static size_t   phi_buffer_sizes[9] = {0};
 
 #define REUSE alloc_if(0) free_if(0)
 #define ALLOC alloc_if(1) free_if(0)
@@ -69,18 +69,20 @@ public:
     int    cj4_buffer_size;
     size_t current_packet_in_size;
     size_t current_packet_out_size;
-    nbnxn_pairlist_t *nbl_buffer;
-    nbnxn_ci_t       *ci_buffer;
-    nbnxn_sci_t      *sci_buffer;
-    nbnxn_cj_t       *cj_buffer;
-    nbnxn_cj4_t      *cj4_buffer;
-    int              *type_buffer;
-    real             *lj_comb_buffer;
-    real             *q_buffer;
-    char             *cpu_in_packet;
-    char             *cpu_out_packet;
-    char             *phi_in_packet;
-    char             *phi_out_packet;
+    nbnxn_pairlist_set_t   *nbl_lists;
+    nbnxn_pairlist_t       *nbl_buffer;
+    nbnxn_ci_t             *ci_buffer;
+    nbnxn_sci_t            *sci_buffer;
+    nbnxn_cj_t             *cj_buffer;
+    nbnxn_cj4_t            *cj4_buffer;
+    int                    *type_buffer;
+    real                   *lj_comb_buffer;
+    real                   *q_buffer;
+    size_t   phi_buffer_sizes[9];
+    char                   *cpu_in_packet;
+    char                   *cpu_out_packet;
+    char                   *phi_in_packet;
+    char                   *phi_out_packet;
     gmx_offload
     offload_buffer() :nbl_buffer_size(0),
     		          ci_buffer_size(0),
@@ -89,6 +91,7 @@ public:
 			          cj4_buffer_size(0),
                       current_packet_in_size(0),
                       current_packet_out_size(0),
+					  nbl_lists(NULL),
                       nbl_buffer(NULL),
                       ci_buffer(NULL),
                       sci_buffer(NULL),
@@ -97,6 +100,7 @@ public:
                       type_buffer(NULL),
                       lj_comb_buffer(NULL),
                       q_buffer(NULL),
+					  phi_buffer_sizes{0,0,0,0,0,0,0,0,0},
                       cpu_in_packet(NULL),
                       cpu_out_packet(NULL),
                       phi_in_packet(NULL),
@@ -174,8 +178,6 @@ osig nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                     t_nrnb *nrnb)
 {
     nonbonded_verlet_group_t                *nbvg      = &fr->nbv->grp[ilocality];
-    gmx_offload static nbnxn_pairlist_set_t *nbl_lists = NULL;
-    nbl_lists = &nbvg->nbl_lists;
 
     offload_buffer &obuf = offload_buffers_array[nbvg->nbat->id];
     int    &nbl_buffer_size = obuf.nbl_buffer_size;
@@ -185,21 +187,24 @@ osig nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
     int    &cj4_buffer_size = obuf.cj4_buffer_size;
     size_t &current_packet_in_size = obuf.current_packet_in_size;
     size_t &current_packet_out_size = obuf.current_packet_out_size;
-    nbnxn_pairlist_t *&nbl_buffer     = obuf.nbl_buffer;
-    nbnxn_ci_t       *&ci_buffer      = obuf.ci_buffer;
-    nbnxn_sci_t      *&sci_buffer     = obuf.sci_buffer;
-    nbnxn_cj_t       *&cj_buffer      = obuf.cj_buffer;
-    nbnxn_cj4_t      *&cj4_buffer     = obuf.cj4_buffer;
-    int              *&type_buffer    = obuf.type_buffer;
-    real             *&lj_comb_buffer = obuf.lj_comb_buffer;
-    real             *&q_buffer       = obuf.q_buffer;
-    char             *&cpu_in_packet  = obuf.cpu_in_packet;
-    char             *&cpu_out_packet = obuf.cpu_out_packet;
-    char             *&phi_in_packet  = obuf.phi_in_packet;
-    char             *&phi_out_packet = obuf.phi_out_packet;
+    nbnxn_pairlist_set_t *&nbl_lists        = obuf.nbl_lists;
+    nbnxn_pairlist_t     *&nbl_buffer       = obuf.nbl_buffer;
+    nbnxn_ci_t           *&ci_buffer        = obuf.ci_buffer;
+    nbnxn_sci_t          *&sci_buffer       = obuf.sci_buffer;
+    nbnxn_cj_t           *&cj_buffer        = obuf.cj_buffer;
+    nbnxn_cj4_t          *&cj4_buffer       = obuf.cj4_buffer;
+    int                  *&type_buffer      = obuf.type_buffer;
+    real                 *&lj_comb_buffer   = obuf.lj_comb_buffer;
+    real                 *&q_buffer         = obuf.q_buffer;
+    size_t (&phi_buffer_sizes)[9]  = obuf.phi_buffer_sizes;
+    char                 *&cpu_in_packet    = obuf.cpu_in_packet;
+    char                 *&cpu_out_packet   = obuf.cpu_out_packet;
+    char                 *&phi_in_packet    = obuf.phi_in_packet;
+    char                 *&phi_out_packet   = obuf.phi_out_packet;
 
     if (bRefreshNbl)
     {
+    	nbl_lists = &nbvg->nbl_lists;
         int                nbl_buffer_size_req = nbvg->nbl_lists.nnbl;
         int                ci_buffer_size_req  = 0;
         int                sci_buffer_size_req = 0;
@@ -397,8 +402,6 @@ osig nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
     auto offload_fun = [ewald_excl, flags, clearF, packet_in_size, packet_out_size, nbat_id,
 						cpu_in_packet, cpu_out_packet, phi_in_packet, phi_out_packet]() {
 #pragma offload target(mic:0) \
-	nocopy(nbl_lists) \
-    nocopy(phi_buffer_sizes) \
 	nocopy(offload_buffers_array) \
     in (cpu_out_packet[0:packet_in_size] :  into(phi_in_packet[0:packet_in_size]) REUSE targetptr) \
     out(phi_out_packet[0:packet_out_size] : into(cpu_in_packet[0:packet_out_size]) REUSE targetptr) \
@@ -410,14 +413,16 @@ osig nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         int &sci_buffer_size = obuf.sci_buffer_size;
         int &cj_buffer_size  = obuf.cj_buffer_size;
         int &cj4_buffer_size = obuf.cj4_buffer_size;
-        nbnxn_pairlist_t *&nbl_buffer     = obuf.nbl_buffer;
-        nbnxn_ci_t       *&ci_buffer      = obuf.ci_buffer;
-        nbnxn_sci_t      *&sci_buffer     = obuf.sci_buffer;
-        nbnxn_cj_t       *&cj_buffer      = obuf.cj_buffer;
-        nbnxn_cj4_t      *&cj4_buffer     = obuf.cj4_buffer;
-        int              *&type_buffer    = obuf.type_buffer;
-        real             *&lj_comb_buffer = obuf.lj_comb_buffer;
-        real             *&q_buffer       = obuf.q_buffer;
+        nbnxn_pairlist_set_t *&nbl_lists      = obuf.nbl_lists;
+        nbnxn_pairlist_t     *&nbl_buffer     = obuf.nbl_buffer;
+        nbnxn_ci_t           *&ci_buffer      = obuf.ci_buffer;
+        nbnxn_sci_t          *&sci_buffer     = obuf.sci_buffer;
+        nbnxn_cj_t           *&cj_buffer      = obuf.cj_buffer;
+        nbnxn_cj4_t          *&cj4_buffer     = obuf.cj4_buffer;
+        int                  *&type_buffer    = obuf.type_buffer;
+        real                 *&lj_comb_buffer = obuf.lj_comb_buffer;
+        real                 *&q_buffer       = obuf.q_buffer;
+        size_t (&phi_buffer_sizes)[9]  = obuf.phi_buffer_sizes;
 
         // Unpack data
         packet_iter *it;
