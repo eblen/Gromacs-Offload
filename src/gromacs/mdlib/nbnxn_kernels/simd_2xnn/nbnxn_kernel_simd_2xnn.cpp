@@ -271,6 +271,7 @@ nbnxn_kernel_simd_2xnn(nbnxn_pairlist_set_t      gmx_unused *nbl_list,
                        real                      gmx_unused *Vvdw)
 #ifdef GMX_NBNXN_SIMD_2XNN
 {
+        dprintf(2, "At least we are inside the kernel\n");
     int                nnbl;
     nbnxn_pairlist_t **nbl;
     int                coulkt, vdwkt = 0;

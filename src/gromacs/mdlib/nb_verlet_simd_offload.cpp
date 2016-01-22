@@ -50,7 +50,7 @@
 #include "external/pfun/pfun.h"
 #include <unistd.h>
 
-gmx_offload static gmx_bool bRefreshNbl         = TRUE;
+gmx_offload static gmx_bool bRefreshNbl_array[2]    = {TRUE};
 static float                offload_signal_array[2] = {0};
 
 #define REUSE alloc_if(0) free_if(0)
@@ -202,9 +202,10 @@ osig nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
     char                 *&phi_in_packet    = obuf.phi_in_packet;
     char                 *&phi_out_packet   = obuf.phi_out_packet;
 
+    nbl_lists = &nbvg->nbl_lists;
+    gmx_bool bRefreshNbl = bRefreshNbl_array[nbvg->nbat->id];
     if (bRefreshNbl)
     {
-    	nbl_lists = &nbvg->nbl_lists;
         int                nbl_buffer_size_req = nbvg->nbl_lists.nnbl;
         int                ci_buffer_size_req  = 0;
         int                sci_buffer_size_req = 0;
@@ -404,8 +405,8 @@ osig nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 #pragma offload target(mic:0) \
 	nocopy(offload_buffers_array) \
     in (cpu_out_packet[0:packet_in_size] :  into(phi_in_packet[0:packet_in_size]) REUSE targetptr) \
-    out(phi_out_packet[0:packet_out_size] : into(cpu_in_packet[0:packet_out_size]) REUSE targetptr) \
-    signal(&offload_signal_array[nbat_id])
+    out(phi_out_packet[0:packet_out_size] : into(cpu_in_packet[0:packet_out_size]) REUSE targetptr)
+    // signal(&offload_signal_array[nbat_id])
     {
         offload_buffer &obuf = offload_buffers_array[nbat_id];
         int &nbl_buffer_size = obuf.nbl_buffer_size;
@@ -436,7 +437,9 @@ osig nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         {
             nbl_ptr = nbl_lists->nbl;
         }
+        dprintf(2, "BR: %p\n", nbl_lists);
         refresh_buffer<nbnxn_pairlist_set_t>(&nbl_lists, &phi_buffer_sizes[0], it);
+        dprintf(2, "AR: %p\n", nbl_lists);
         refresh_buffer<nbnxn_pairlist_t>(&nbl_buffer, &phi_buffer_sizes[1], it);
         refresh_buffer<nbnxn_ci_t>(&ci_buffer, &phi_buffer_sizes[2], it);
         refresh_buffer<nbnxn_sci_t>(&sci_buffer, &phi_buffer_sizes[3], it);
@@ -512,7 +515,7 @@ osig nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                NULL,  // fshift not used when nnbl > 1
                                Vc,    //output
                                Vvdw); //output
-        bRefreshNbl = FALSE;
+        bRefreshNbl_array[nbat_id] = FALSE;
 
         // Force and shift reductions
         nbnxn_atomdata_add_nbat_f_to_f_treereduce(nbat, gmx_omp_nthreads_get(emntNonbonded));
@@ -542,14 +545,15 @@ osig nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 
 void wait_for_offload(osig os)
 {
-#pragma offload_wait target(mic:0) wait(&offload_signal_array[os])
+// #pragma offload_wait target(mic:0) wait(&offload_signal_array[os])
 	offload_unpack_data unpack_data = unpack_data_array[os];
     unpackdata(unpack_data.out_packet_addr, unpack_data.cpu_buffers, 4);
 }
 
 void setRefreshNblForOffload()
 {
-    bRefreshNbl = TRUE;
+    bRefreshNbl_array[0] = TRUE;
+    bRefreshNbl_array[1] = TRUE;
 }
 
 gmx_bool offloadedKernelEnabled(int kernel_type)

@@ -1214,14 +1214,18 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
     if (bUseOffloadedKernel)
     {
         /* Maybe we should move this into do_force_lowlevel */
+        dprintf(2, "launching local offload\n");
         do_nb_verlet(fr, ic, enerd, flags, eintLocal, enbvClearFYes, nrnb, wcycle);
+        dprintf(2, "finishing local offload\n");
         if (DOMAINDECOMP(cr))
         {
+        dprintf(2, "launching nonlocal offload\n");
             do_nb_verlet(fr, ic, enerd, flags, eintNonlocal, enbvClearFYes, nrnb, wcycle);
+        dprintf(2, "finishing nonlocal offload\n");
         }
     }
 
-    if (!bUseOrEmulGPU || bDiffKernels)
+    if (!bUseOffloadedKernel && (!bUseOrEmulGPU || bDiffKernels))
     {
         int aloc;
 
